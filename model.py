@@ -26,37 +26,53 @@ import tensorflow as tf
 # 	cv2.waitKey(0)
 # 	cv2.destroyAllWindows()
 
-def load_data (path):
+def isfloat(value):
+  try:
+    float(value)
+    return True
+  except ValueError:
+    return False
+
+def load_data (paths):
 	images_paths = []
 	steering_angles = []
 
-	with open(path, 'r') as f:
-		#skip first line - heading
-		next(f, None)
-		reader = csv.reader(f, skipinitialspace = True, delimiter = ',')
+	for file_path in paths:
+		with open(file_path, 'r') as f:
+			#skip first line - heading
+			
+			reader = csv.reader(f, skipinitialspace = True, delimiter = ',')
 
-		for row in reader:
-			steering_center = float(row[3])
-			# create adjusted steering measurements for the side camera images
-			correction = 0.2 # this is a parameter to tune
-			steering_left = steering_center + correction
-			steering_right = steering_center - correction
+			for row in reader:
+				if isfloat(row[3]) == False:
+					next(f, None)
+					continue
+				steering_center = float(row[3])
+				# create adjusted steering measurements for the side camera images
+				correction = 0.2 # this is a parameter to tune
+				steering_left = steering_center + correction
+				steering_right = steering_center - correction
 
-			# read in images from center, left and right cameras
-			# fill in the path to your training IMG directory
-			root_path = getcwd() + '/'
-			img_center = root_path + row[0]
-			img_left = root_path + row[1]
-			img_right = root_path + row[2]
-		
-			#add images and angles to data set
-			images_paths.extend((img_center, img_left, img_right))
-			steering_angles.extend((steering_center, steering_left, steering_right))
+				# read in images from center, left and right cameras
+				# fill in the path to your training IMG directory
+				if row[0][0:2] == 'IMG':
+					root_path = getcwd() + '/'
+				else: 
+					root_path = ''
+				img_center = root_path + row[0]
+				img_left = root_path + row[1]
+				img_right = root_path + row[2]
+			
+				#add images and angles to data set
+				images_paths.extend((img_center, img_left, img_right))
+				steering_angles.extend((steering_center, steering_left, steering_right))
 
 	images_paths = np.array(images_paths)
 	steering_angles = np.array (steering_angles)
 
 	return images_paths, steering_angles
+
+
 
 def generator (images_paths, angles, batch_size = 128):
 	'''Method for the model training data generator to load and process 
@@ -69,11 +85,39 @@ def generator (images_paths, angles, batch_size = 128):
 			batch_x, batch_y = images_paths[offset : offset + batch_size], angles[offset : offset + batch_size]
 			for i in range(len(batch_x)):
 				img = np.asarray(Image.open(images_paths[i]))
+				#img = cv2.cvtColor(img, cv2.COLOR_BGR2YUV)
 				X.append(img)
 				y.append(angles[i])
 			
 			yield (np.array(X), np.array(y))
 			
+# def generator(images_paths, angles, batch_size=128):
+#     '''
+#     method for the model training data generator to load, process, and distort images, then yield them to the
+#     model. if 'validation_flag' is true the image is not distorted. also flips images with turning angle magnitudes of greater than 0.33, as to give more weight to them and mitigate bias toward low and zero turning angles
+#     '''
+#     images_paths, angles = shuffle(images_paths, angles)
+#     X,y = ([],[])
+#     while True:       
+#         for i in range(len(angles)):
+#             img = np.asarray(Image.open(images_paths[i]))
+#             angle = angles[i]
+#             X.append(img)
+#             y.append(angle)
+#             if len(X) == batch_size:
+#                 yield (np.array(X), np.array(y))
+#                 X, y = ([],[])
+#                 images_paths, angles = shuffle(images_paths, angles)
+#             # flip horizontally and invert steer angle, if magnitude is > 0.33
+#             if abs(angle) > 0.33:
+#                 img = cv2.flip(img, 1)
+#                 angle *= -1
+#                 X.append(img)
+#                 y.append(angle)
+#                 if len(X) == batch_size:
+#                     yield (np.array(X), np.array(y))
+#                     X, y = ([],[])
+#                     images_paths, angles = shuffle(images_paths, angles)
 
 def network (input_shape, crop_shape):
 	
@@ -116,6 +160,8 @@ def network (input_shape, crop_shape):
 	#model.add(Dropout(0.50))
 	model.add(Dense(10, W_regularizer=l2(0.001), name = 'FC4'))
 	model.add(ELU())
+	
+	#Droput
 	#model.add(Dropout(0.50))
 
 	# Add a fully connected output layer
@@ -126,11 +172,39 @@ def network (input_shape, crop_shape):
 
 ###################    Main program   ######################################
 
-csv_file = './driving_log.csv'
+#csv_files = ['./driving_log.csv', './my_own_data/driving_log.csv']
+csv_files = ['./my_own_data/driving_log.csv', './my_own_data_track2/driving_log.csv']
 
-images_paths, steering_angles = load_data (csv_file)
+images_paths, steering_angles = load_data (csv_files)
+
+batch_size = 128
 
 print('Total number of images is: ', images_paths.shape)
+
+# num_bins = 25
+# avg_samples_per_bin = len(steering_angles)/num_bins
+# hist, bins = np.histogram(steering_angles, num_bins)
+# # f = plt.figure(1)
+# # plt.hist(steering_angles, num_bins)
+# # plt.plot((np.min(steering_angles), np.max(steering_angles)), (avg_samples_per_bin, avg_samples_per_bin), 'k-')
+# # f.show()
+
+# keep_probs = []
+# target = avg_samples_per_bin * .5
+# for i in range(num_bins):
+#     if hist[i] < target:
+#         keep_probs.append(1.)
+#     else:
+#         keep_probs.append(1./(hist[i]/target))
+# remove_list = []
+# for i in range(len(steering_angles)):
+#     for j in range(num_bins):
+#         if steering_angles[i] > bins[j] and steering_angles[i] <= bins[j+1]:
+#             # delete from X and y with probability 1 - keep_probs[j]
+#             if np.random.rand() > keep_probs[j]:
+#                 remove_list.append(i)
+# images_paths = np.delete(images_paths, remove_list, axis=0)
+# steering_angles = np.delete(steering_angles, remove_list)
 
 #Shuffle before split into train and validation set
 images_paths, steering_angles = shuffle(images_paths, steering_angles)
@@ -148,25 +222,24 @@ network([160, 320, 3], ((50,20),(0,0))).summary()
 
 model = network([160, 320, 3], ((50,20),(0,0)))
 
-model.compile(loss="mse", optimizer="adam", metrics=['accuracy'])
+model.compile(loss="mse", optimizer="adam")
 
 train_generator = generator (images_paths_train, steering_angles_train)
 valid_generator = generator (images_paths_valid, steering_angles_valid)
 
 history = model.fit_generator(train_generator, validation_data = valid_generator,
 	nb_val_samples = len(steering_angles_valid), samples_per_epoch = len(steering_angles_train),
-	nb_epoch = 10, verbose = 1)
+	nb_epoch = 15, verbose = 1)
 
 
 
 # Save model data
 model.save('./model.h5')
 print('Model saved')
-# json_string = model.to_json()
-# with open('./model.json', 'w') as f:
-#     f.write(json_string)
+
 
 ### plot the training and validation loss for each epoch
+#r = plt.figure(3)
 plt.plot(history.history['loss'])
 plt.plot(history.history['val_loss'])
 plt.title('model mean squared error loss')
