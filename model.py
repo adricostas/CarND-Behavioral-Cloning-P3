@@ -17,14 +17,9 @@ import matplotlib.pyplot as plt
 from os import getcwd
 import csv
 import tensorflow as tf 
-#from keras.utils.visualize_util import plot
 
 
-# def displayCV2(img):
-# 	''' Utility method to display a CV2 image'''
-# 	cv2.imshow(img)
-# 	cv2.waitKey(0)
-# 	cv2.destroyAllWindows()
+
 
 def isfloat(value):
   try:
@@ -44,6 +39,7 @@ def load_data (paths):
 			reader = csv.reader(f, skipinitialspace = True, delimiter = ',')
 
 			for row in reader:
+				#Check if we are at the "title" row. It's necessary when we work with udacity data.
 				if isfloat(row[3]) == False:
 					next(f, None)
 					continue
@@ -55,6 +51,7 @@ def load_data (paths):
 
 				# read in images from center, left and right cameras
 				# fill in the path to your training IMG directory
+				#This "if" is necessary when we use udacity data.
 				if row[0][0:2] == 'IMG':
 					root_path = getcwd() + '/'
 				else: 
@@ -73,51 +70,51 @@ def load_data (paths):
 	return images_paths, steering_angles
 
 
+# def generator (images_paths, angles, batch_size = 128):
+# 	'''Method for the model training data generator to load and process 
+# 	images and then yield them to the model'''
+# 	num_samples = len(images_paths)
+# 	while True:		
+# 		for offset in range(0, num_samples, batch_size):
+# 			X,y = ([],[])
+# 			images_paths, angles = shuffle(images_paths, angles)
+# 			batch_x, batch_y = images_paths[offset : offset + batch_size], angles[offset : offset + batch_size]
+# 			for i in range(len(batch_x)):
+# 				img = np.asarray(Image.open(images_paths[i]))
+# 				#img = cv2.cvtColor(img, cv2.COLOR_BGR2YUV)
+# 				X.append(img)
+# 				y.append(angles[i])
+			
+# 			yield (np.array(X), np.array(y))
+			
+def generator(images_paths, angles, batch_size=128):
+    '''
+    Method for the model training data generator to load images and then yield them to the
+    model. '''
+    images_paths, angles = shuffle(images_paths, angles)
+    X,y = ([],[])
+    while True:       
+        for i in range(len(angles)):
+            img = np.asarray(Image.open(images_paths[i]))
+            angle = angles[i]
+            X.append(img)
+            y.append(angle)
+            if len(X) == batch_size:
+                yield (np.array(X), np.array(y))
+                X, y = ([],[])
+                images_paths, angles = shuffle(images_paths, angles)
 
-def generator (images_paths, angles, batch_size = 128):
-	'''Method for the model training data generator to load and process 
-	images and then yield them to the model'''
-	num_samples = len(images_paths)
-	while True:		
-		for offset in range(0, num_samples, batch_size):
-			X,y = ([],[])
-			images_paths, angles = shuffle(images_paths, angles)
-			batch_x, batch_y = images_paths[offset : offset + batch_size], angles[offset : offset + batch_size]
-			for i in range(len(batch_x)):
-				img = np.asarray(Image.open(images_paths[i]))
-				#img = cv2.cvtColor(img, cv2.COLOR_BGR2YUV)
-				X.append(img)
-				y.append(angles[i])
-			
-			yield (np.array(X), np.array(y))
-			
-# def generator(images_paths, angles, batch_size=128):
-#     '''
-#     method for the model training data generator to load, process, and distort images, then yield them to the
-#     model. if 'validation_flag' is true the image is not distorted. also flips images with turning angle magnitudes of greater than 0.33, as to give more weight to them and mitigate bias toward low and zero turning angles
-#     '''
-#     images_paths, angles = shuffle(images_paths, angles)
-#     X,y = ([],[])
-#     while True:       
-#         for i in range(len(angles)):
-#             img = np.asarray(Image.open(images_paths[i]))
-#             angle = angles[i]
-#             X.append(img)
-#             y.append(angle)
-#             if len(X) == batch_size:
-#                 yield (np.array(X), np.array(y))
-#                 X, y = ([],[])
-#                 images_paths, angles = shuffle(images_paths, angles)
-#             # flip horizontally and invert steer angle, if magnitude is > 0.33
-#             if abs(angle) > 0.33:
-#                 img = cv2.flip(img, 1)
-#                 angle *= -1
-#                 X.append(img)
-#                 y.append(angle)
-#                 if len(X) == batch_size:
-#                     yield (np.array(X), np.array(y))
-#                     X, y = ([],[])
-#                     images_paths, angles = shuffle(images_paths, angles)
+            # data augmentation
+            # flip horizontally and invert steer angle, if magnitude is > 0.33
+            if abs(angle) > 0.33:
+                img = cv2.flip(img, 1)
+                angle *= -1
+                X.append(img)
+                y.append(angle)
+                if len(X) == batch_size:
+                    yield (np.array(X), np.array(y))
+                    X, y = ([],[])
+                    images_paths, angles = shuffle(images_paths, angles)
 
 def network (input_shape, crop_shape):
 	
@@ -138,7 +135,6 @@ def network (input_shape, crop_shape):
 	model.add(Convolution2D(48, 5, 5, subsample = (2, 2), border_mode = 'valid',
 		W_regularizer = l2(0.001), name = 'Convolution2D3'))
 
-	#model.add(Dropout(0.50))
 	
 	# Add two 3x3 convolution layers (output depth 64, and 64)
 	model.add(Convolution2D(64, 3, 3, border_mode='valid', W_regularizer=l2(0.001), 
@@ -151,18 +147,16 @@ def network (input_shape, crop_shape):
 	# Add a flatten layer
 	model.add(Flatten(name = 'Flatten'))
 
-	# Add three fully connected layers (depth 100, 50, 10), tanh activation (and dropouts)
+	# Add three fully connected layers (depth 100, 50, 10)
 	model.add(Dense(100, W_regularizer=l2(0.001), name = 'FC2'))
 	model.add(ELU())
-	#model.add(Dropout(0.50))
+
 	model.add(Dense(50, W_regularizer=l2(0.001), name = 'FC3'))
 	model.add(ELU())
-	#model.add(Dropout(0.50))
+	
 	model.add(Dense(10, W_regularizer=l2(0.001), name = 'FC4'))
 	model.add(ELU())
 	
-	#Droput
-	#model.add(Dropout(0.50))
 
 	# Add a fully connected output layer
 	model.add(Dense(1, name = 'Readout'))
@@ -181,30 +175,26 @@ batch_size = 128
 
 print('Total number of images is: ', images_paths.shape)
 
-# num_bins = 25
-# avg_samples_per_bin = len(steering_angles)/num_bins
-# hist, bins = np.histogram(steering_angles, num_bins)
-# # f = plt.figure(1)
-# # plt.hist(steering_angles, num_bins)
-# # plt.plot((np.min(steering_angles), np.max(steering_angles)), (avg_samples_per_bin, avg_samples_per_bin), 'k-')
-# # f.show()
+num_bins = 25
+avg_samples_per_bin = len(steering_angles)/num_bins
+hist, bins = np.histogram(steering_angles, num_bins)
 
-# keep_probs = []
-# target = avg_samples_per_bin * .5
-# for i in range(num_bins):
-#     if hist[i] < target:
-#         keep_probs.append(1.)
-#     else:
-#         keep_probs.append(1./(hist[i]/target))
-# remove_list = []
-# for i in range(len(steering_angles)):
-#     for j in range(num_bins):
-#         if steering_angles[i] > bins[j] and steering_angles[i] <= bins[j+1]:
-#             # delete from X and y with probability 1 - keep_probs[j]
-#             if np.random.rand() > keep_probs[j]:
-#                 remove_list.append(i)
-# images_paths = np.delete(images_paths, remove_list, axis=0)
-# steering_angles = np.delete(steering_angles, remove_list)
+keep_probs = []
+target = avg_samples_per_bin 
+for i in range(num_bins):
+    if hist[i] < target:
+        keep_probs.append(1.)
+    else:
+        keep_probs.append(1./(hist[i]/target))
+remove_list = []
+for i in range(len(steering_angles)):
+    for j in range(num_bins):
+        if steering_angles[i] > bins[j] and steering_angles[i] <= bins[j+1]:
+            # delete from X and y with probability 1 - keep_probs[j]
+            if np.random.rand() > keep_probs[j]:
+                remove_list.append(i)
+images_paths = np.delete(images_paths, remove_list, axis=0)
+steering_angles = np.delete(steering_angles, remove_list)
 
 #Shuffle before split into train and validation set
 images_paths, steering_angles = shuffle(images_paths, steering_angles)
@@ -217,10 +207,9 @@ print('Train:', images_paths_train.shape, steering_angles_train.shape)
 print('Valid:', images_paths_valid.shape, steering_angles_valid.shape)
 
 
-network([160, 320, 3], ((50,20),(0,0))).summary()
-#plot(network([160, 320, 3], ((50,20),(0,0))), to_file="model.png", show_shapes=True)
-
 model = network([160, 320, 3], ((50,20),(0,0)))
+
+model.summary()
 
 model.compile(loss="mse", optimizer="adam")
 
@@ -229,7 +218,7 @@ valid_generator = generator (images_paths_valid, steering_angles_valid)
 
 history = model.fit_generator(train_generator, validation_data = valid_generator,
 	nb_val_samples = len(steering_angles_valid), samples_per_epoch = len(steering_angles_train),
-	nb_epoch = 15, verbose = 1)
+	nb_epoch = 20, verbose = 1)
 
 
 
@@ -239,7 +228,6 @@ print('Model saved')
 
 
 ### plot the training and validation loss for each epoch
-#r = plt.figure(3)
 plt.plot(history.history['loss'])
 plt.plot(history.history['val_loss'])
 plt.title('model mean squared error loss')
